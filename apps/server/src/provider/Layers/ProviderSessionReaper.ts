@@ -41,6 +41,7 @@ import type { InvalidAnchorEntry, ReapScheduleEntry } from "./reaperDeadlines.ts
 import { deriveReapEntries } from "./reaperDeadlines.ts";
 
 const REAPER_MODE = "deadline";
+const SIGNAL_FEED_RESTART_DELAY_MS = 1_000;
 
 export interface ProviderSessionReaperLiveOptions {
   readonly inactivityThresholdMs?: number;
@@ -452,31 +453,37 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
       const signalWake = (signal: ReaperSignal) => wake.signal(signal);
 
-      const forkFeed = (name: string, effect: Effect.Effect<void>) =>
-        effect.pipe(
-          Effect.catchCause((cause) => {
-            if (Cause.hasInterruptsOnly(cause)) {
-              return Effect.failCause(cause);
-            }
-            return increment(providerSessionReaperSignalFeedRestartsTotal, {
-              mode,
-              feed: name,
-            }).pipe(
-              Effect.andThen(
-                Effect.logWarning("provider.session.reaper.signal-stream-failed", {
-                  mode,
-                  feed: name,
-                  cause,
-                }),
-              ),
-              Effect.andThen(signalWake({ type: "reconcile-all", reason: `feed-failed:${name}` })),
-            );
-          }),
-          Effect.forkScoped,
-        );
+      const forkFeed = (name: string, effect: () => Effect.Effect<void>) => {
+        const run = (): Effect.Effect<void> =>
+          Effect.suspend(effect).pipe(
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) {
+                return Effect.failCause(cause);
+              }
+              return increment(providerSessionReaperSignalFeedRestartsTotal, {
+                mode,
+                feed: name,
+              }).pipe(
+                Effect.andThen(
+                  Effect.logWarning("provider.session.reaper.signal-stream-failed", {
+                    mode,
+                    feed: name,
+                    cause,
+                  }),
+                ),
+                Effect.andThen(
+                  signalWake({ type: "reconcile-all", reason: `feed-failed:${name}` }),
+                ),
+                Effect.andThen(Effect.sleep(Duration.millis(SIGNAL_FEED_RESTART_DELAY_MS))),
+                Effect.flatMap(() => run()),
+              );
+            }),
+          );
 
-      yield* forkFeed(
-        "provider-session-directory-events",
+        return Effect.forkScoped(run());
+      };
+
+      yield* forkFeed("provider-session-directory-events", () =>
         Stream.runForEach(directoryEvents.changes, (change) =>
           signalWake({
             type: "runtime-binding-changed",
@@ -485,8 +492,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         ),
       );
 
-      yield* forkFeed(
-        "orchestration-domain-events",
+      yield* forkFeed("orchestration-domain-events", () =>
         Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
           switch (event.type) {
             case "thread.deleted":

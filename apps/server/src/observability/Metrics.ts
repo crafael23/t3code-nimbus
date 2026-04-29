@@ -104,8 +104,7 @@ export const providerSessionReaperWakeCoalescedTotal = Metric.counter(
 export const providerSessionReaperSignalFeedRestartsTotal = Metric.counter(
   "t3_provider_session_reaper_signal_feed_restarts_total",
   {
-    description:
-      "Total provider session reaper signal feeds that failed and triggered recovery reconciliation.",
+    description: "Total provider session reaper signal feed restarts after transient failure.",
   },
 );
 

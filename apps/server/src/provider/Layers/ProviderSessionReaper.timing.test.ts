@@ -126,6 +126,9 @@ function makeHarness(input: {
   readonly inactivityThresholdMs: number;
   readonly fallbackReconcileIntervalMs: number;
   readonly stopFailureRetryIntervalMs?: number;
+  readonly streamDomainEvents?: (
+    defaultStream: Stream.Stream<OrchestrationEvent>,
+  ) => Stream.Stream<OrchestrationEvent>;
   readonly stopSessionImplementation?: (request: {
     readonly threadId: ThreadId;
   }) => ReturnType<ProviderServiceShape["stopSession"]>;
@@ -155,7 +158,8 @@ function makeHarness(input: {
       readEvents: () => Stream.empty,
       dispatch: () => unsupported(),
       get streamDomainEvents() {
-        return Stream.fromPubSub(domainEventPubSub);
+        const defaultStream = Stream.fromPubSub(domainEventPubSub);
+        return input.streamDomainEvents?.(defaultStream) ?? defaultStream;
       },
     };
 
@@ -630,6 +634,76 @@ it.effect("reconciles overdue bindings after a long suspended sleep", () =>
         );
         assert.equal(stoppedThreadIds.has(firstThreadId), true);
         assert.equal(stoppedThreadIds.has(secondThreadId), true);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(TestClock.layer())),
+  ),
+);
+
+it.effect("restarts a failed orchestration feed and wakes on later domain events", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-feed-restart");
+      let streamSubscriptionCount = 0;
+      const harness = yield* makeHarness({
+        initialReadModel: makeReadModel([
+          {
+            id: threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: new Date(0).toISOString(),
+            },
+          },
+        ]),
+        inactivityThresholdMs: 1_000,
+        fallbackReconcileIntervalMs: 60_000,
+        streamDomainEvents: (defaultStream) => {
+          streamSubscriptionCount += 1;
+          return streamSubscriptionCount === 1
+            ? Stream.die(new Error("simulated transient orchestration feed failure"))
+            : defaultStream;
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const repository = yield* ProviderSessionRuntimeRepository;
+        const reaper = yield* ProviderSessionReaper;
+
+        yield* reaper.start();
+        yield* Effect.yieldNow;
+
+        yield* TestClock.adjust(Duration.millis(1_000));
+        yield* Effect.yieldNow;
+        assert.equal(streamSubscriptionCount, 2);
+
+        yield* repository.upsert({
+          threadId,
+          providerName: "codex",
+          adapterKey: "codex",
+          runtimeMode: "full-access",
+          status: "running",
+          lastSeenAt: new Date(0).toISOString(),
+          resumeCursor: null,
+          runtimePayload: null,
+        });
+        yield* harness.publishDomainEvent(
+          makeThreadSessionSetEvent(threadId, {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: new Date(1_000).toISOString(),
+          }),
+        );
+        yield* Effect.yieldNow;
+
+        assert.equal(harness.stopSession.mock.calls.length, 1);
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.provide(TestClock.layer())),
   ),
