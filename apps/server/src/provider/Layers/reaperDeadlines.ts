@@ -79,7 +79,7 @@ function readRecentProviderSendTurnAt(runtimePayload: unknown): string | undefin
     : undefined;
 }
 
-export function resolveInactivityAnchor(input: {
+function resolveInactivityAnchor(input: {
   readonly latestTurn: {
     readonly requestedAt: string;
     readonly startedAt: string | null;
