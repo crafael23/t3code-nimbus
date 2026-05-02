@@ -356,9 +356,45 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
               "provider.session_reaper.mode": mode,
               "provider.thread_id": entry.threadId,
               "provider.kind": entry.provider,
+              "provider.session_reaper.read_model_thread_present": entry.readModelThreadPresent,
+              "provider.session_reaper.inactivity_anchor_at": entry.anchorAt,
+              "provider.session_reaper.inactivity_anchor_source": entry.anchorSource,
+              "provider.session_reaper.deadline_basis_at": entry.deadlineBasisAt,
               "provider.session_reaper.deadline_basis_source": entry.deadlineBasisSource,
               "provider.session_reaper.deadline_at_ms": entry.deadlineAtMs,
               "provider.session_reaper.reap_lag_ms": logContext.reapLagMs,
+              "provider.session_reaper.last_seen_at": entry.lastSeenAt,
+              ...(entry.bindingStatus !== undefined
+                ? { "provider.session_reaper.binding_status": entry.bindingStatus }
+                : {}),
+              ...(entry.sessionStatus !== null
+                ? { "provider.session_reaper.session_status": entry.sessionStatus }
+                : {}),
+              ...(entry.sessionUpdatedAt !== null
+                ? { "provider.session_reaper.session_updated_at": entry.sessionUpdatedAt }
+                : {}),
+              ...(entry.activeTurnId !== null
+                ? { "provider.session_reaper.active_turn_id": entry.activeTurnId }
+                : {}),
+              ...(entry.latestTurnId !== null
+                ? { "provider.session_reaper.latest_turn_id": entry.latestTurnId }
+                : {}),
+              ...(entry.latestTurnState !== null
+                ? { "provider.session_reaper.latest_turn_state": entry.latestTurnState }
+                : {}),
+              ...(entry.latestTurnRequestedAt !== null
+                ? {
+                    "provider.session_reaper.latest_turn_requested_at": entry.latestTurnRequestedAt,
+                  }
+                : {}),
+              ...(entry.latestTurnStartedAt !== null
+                ? { "provider.session_reaper.latest_turn_started_at": entry.latestTurnStartedAt }
+                : {}),
+              ...(entry.latestTurnCompletedAt !== null
+                ? {
+                    "provider.session_reaper.latest_turn_completed_at": entry.latestTurnCompletedAt,
+                  }
+                : {}),
             });
 
             yield* Metric.update(
@@ -420,7 +456,11 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                 "provider.session_reaper.mode": mode,
                 "provider.thread_id": entry.threadId,
                 "provider.kind": entry.provider,
+                "provider.session_reaper.inactivity_anchor_at": entry.anchorAt,
+                "provider.session_reaper.inactivity_anchor_source": entry.anchorSource,
+                "provider.session_reaper.deadline_basis_at": entry.deadlineBasisAt,
                 "provider.session_reaper.deadline_basis_source": entry.deadlineBasisSource,
+                "provider.session_reaper.deadline_at_ms": entry.deadlineAtMs,
               },
             }),
           );
